@@ -23,6 +23,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 	$status = 'pending';
 	$remarkDate = null;
 
+	// Simpan AptNumber ke session
+	$_SESSION['aptno'] = $aptnumber;
+
 	// Simpan data ke tblappointment
 	$stmt = $con->prepare("INSERT INTO tblappointment (AptNumber, Name, Email, PhoneNumber, AptDate, AptTime, ApplyDate, Remark, Status, RemarkDate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
 	$stmt->bind_param("isssssssss", $aptnumber, $name, $email, $phone, $adate, $atime, $applyDate, $remark, $status, $remarkDate);
@@ -200,13 +203,44 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 		</div>
 	</section>
 
+	<br>
+	<section class="ftco-section ftco-no-pt ftco-booking">
+		<div class="container-fluid px-0">
+			<div class="row no-gutters d-md-flex justify-content-end">
+				<div class="one-forth d-flex align-items-end">
+					<div class="text">
+						<div class="overlay"></div>
+						<div class="appointment-wrap">
+							<span class="subheading">Cek Status Appointment</span>
+							<h3 class="mb-2">Cari Appointment Anda</h3>
+							<form id="search-appointment-form" class="appointment-form"
+								onsubmit="return searchAppointment(event)">
+								<div class="row">
+									<div class="col-sm-12">
+										<div class="form-group">
+											<input type="text" class="form-control" id="apt_number"
+												placeholder="Masukkan Nomor Perjanjian" name="apt_number"
+												required="true" pattern="[0-9]+">
+										</div>
+									</div>
+								</div>
+								<div class="form-group">
+									<input type="submit" name="search_submit" value="Cek Status"
+										class="btn btn-primary">
+								</div>
+							</form>
+
+							<div id="status-message"></div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</section>
 
 	<br>
 
-
 	<?php include_once('includes/footer.php'); ?>
-
-
 
 	<!-- loader -->
 	<div id="ftco-loader" class="show fullscreen"><svg class="circular" width="48px" height="48px">
@@ -245,14 +279,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 		document.addEventListener("DOMContentLoaded", function () {
 			// Define the service combos
 			const serviceCombos = {
-				"1": "2",
-				"2": "1",
-				"3": "4",
-				"4": "3",
-				"5": "6",
-				"6": "5",
-				"7": "8",
-				"8": "7"
+				"16": ["17"], // Ayelash -> Nail Art
+				"17": ["16", "25"], // Nail Art -> Ayelash, Catok Rambut
+				"21": ["16"], // Smoothing -> Ayelash
+				"25": ["17"], // Catok Rambut -> Nail Art
 			};
 
 			document.getElementById("appointment-form").addEventListener("submit", function (e) {
@@ -260,43 +290,91 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 				const selectedServices = Array.from(document.querySelectorAll('[name="services[]"] option:checked')).map(option => option.value);
 
 				// Find missing pairs
-				let missingPair = null;
+				let missingPairs = [];
 				selectedServices.forEach(serviceId => {
-					const expectedPair = serviceCombos[serviceId];
-					if (expectedPair && !selectedServices.includes(expectedPair)) {
-						missingPair = expectedPair;
-					}
+					const expectedPairs = serviceCombos[serviceId] || [];
+					expectedPairs.forEach(expectedPair => {
+						if (!selectedServices.includes(expectedPair) && !missingPairs.includes(expectedPair)) {
+							missingPairs.push(expectedPair);
+						}
+					});
 				});
 
-				if (missingPair) {
+				if (missingPairs.length > 0) {
 					e.preventDefault(); // Stop the form submission
 
 					// Show SweetAlert suggestion
 					Swal.fire({
 						title: "Suggestion",
-						text: `Do you want to add the paired service Fruit facial ?`,
+						text: `Do you want to add the paired service(s): ${missingPairs.map(pairId => getServiceName(pairId)).join(", ")}?`,
 						icon: "question",
 						showCancelButton: true,
-						confirmButtonText: "Yes, add it",
+						confirmButtonText: "Yes, add them",
 						cancelButtonText: "No, proceed",
 					}).then((result) => {
 						if (result.isConfirmed) {
-							// Add the missing service to the selected options
-							const missingOption = document.querySelector(`[name="services[]"] option[value="${missingPair}"]`);
-							if (missingOption) {
-								missingOption.selected = true;
-							}
+							// Add the missing services to the selected options
+							missingPairs.forEach(pairId => {
+								const missingOption = document.querySelector(`[name="services[]"] option[value="${pairId}"]`);
+								if (missingOption) {
+									missingOption.selected = true;
+								}
+							});
 							// Re-submit the form
 							document.getElementById("appointment-form").submit();
 						}
 					});
 				}
 			});
+
+			// Function to map service IDs to names
+			function getServiceName(serviceId) {
+				const serviceNames = {
+					"16": "Ayelash",
+					"17": "Nail Art",
+					"21": "Smoothing",
+					"25": "Catok Rambut"
+				};
+				return serviceNames[serviceId] || "Unknown Service";
+			}
 		});
 	</script>
+	<script>
+		function searchAppointment(event) {
+			event.preventDefault(); // Prevent form from submitting the traditional way
 
+			const aptNumber = document.getElementById('apt_number').value;
+			const statusMessage = document.getElementById('status-message');
 
+			// Create form data
+			const formData = new FormData();
+			formData.append('apt_number', aptNumber);
 
+			// Make an AJAX request
+			fetch('search-appointment.php', {
+				method: 'POST',
+				body: formData
+			})
+				.then(response => response.json())
+				.then(data => {
+					if (data.success) {
+						const status = data.status;
+						if (status === '1') {
+							statusMessage.innerHTML = "<div class='alert alert-success mt-4'>Appointment Anda diterima.</div>";
+						} else if (status === '2') {
+							statusMessage.innerHTML = "<div class='alert alert-danger mt-4'>Perjanjian Anda ditolak.</div>";
+						} else {
+							statusMessage.innerHTML = `<div class='alert alert-warning mt-4'>Status perjanjian: ${status}</div>`;
+						}
+					} else {
+						statusMessage.innerHTML = "<div class='alert alert-danger mt-4'>Nomor perjanjian tidak ditemukan.</div>";
+					}
+				})
+				.catch(error => {
+					statusMessage.innerHTML = "<div class='alert alert-danger mt-4'>Terjadi kesalahan. Silakan coba lagi.</div>";
+				});
+		}
+	</script>
 </body>
 
 </html>
